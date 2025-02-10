@@ -1,7 +1,7 @@
 import 'dart:isolate';
 import 'dart:async';
 import 'package:async/async.dart';
-
+part 'streams_basics.dart';
 
 class IsolateChatService {
   late ReceivePort mainReceivePort;
@@ -99,5 +99,6 @@ class IsolateChatService {
     print("🚫 Chat closed.");
   }
 }
+
 
 
