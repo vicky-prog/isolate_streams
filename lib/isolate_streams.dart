@@ -7,17 +7,23 @@ int calculate() {
 }
 
 
-void startChart() async{
- final chatService = IsolateChatService();  
-  await chatService.start(); // ✅ Waits until the chat is ready before continuing
+
+void startChat() async {
+  final chatService = IsolateChatService();
+  await chatService.start();
 
   while (true) {
     stdout.write("You: ");
-    String input = stdin.readLineSync()!;
+    String input = stdin.readLineSync()?.trim() ?? "";
     if (input.toLowerCase() == "exit") {
       chatService.dispose();
       break;
+    } else if (input.toLowerCase() == "pause") {
+      chatService.pause();
+    } else if (input.toLowerCase() == "resume") {
+      chatService.resume();
+    } else {
+      await chatService.sendMessageToIsolate(input);
     }
-    await chatService.sendMessageToIsolate(input); // ✅ Waits for a response before next input
   }
 }

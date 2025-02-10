@@ -1,24 +1,29 @@
 import 'dart:isolate';
-import 'dart:io';
 import 'dart:async';
 import 'package:async/async.dart';
+
 
 class IsolateChatService {
   late ReceivePort mainReceivePort;
   late SendPort isolateSendPort;
   late Isolate isolate;
-  final Completer<bool> _isolateReady = Completer<bool>(); // ✅ Ensures we wait until ready
-  StreamQueue<String>? messageQueue; //  Handles multiple messages
+  StreamSubscription? subscription;
+  StreamQueue<String>? messageQueue;
+  bool isPaused = false;
+
+  final Completer<bool> _isolateReady = Completer<bool>();
 
   IsolateChatService() {
     mainReceivePort = ReceivePort();
-    var broadcastStream = mainReceivePort.asBroadcastStream(); // ✅ Convert to Broadcast Stream
-    messageQueue = StreamQueue(broadcastStream.where((msg) => msg is String).cast<String>()); // ✅ Only listen to String messages
+    var broadcastStream = mainReceivePort.asBroadcastStream();
+    messageQueue = StreamQueue(
+      broadcastStream.where((msg) => msg is String).cast<String>(),
+    );
 
-    broadcastStream.listen((message) {
+    subscription = broadcastStream.listen((message) {
       if (message is SendPort) {
         isolateSendPort = message;
-        _isolateReady.complete(true); // ✅ Mark chat as ready
+        _isolateReady.complete(true);
         print("✅ Chat Initialized! Start typing...");
       } else if (message is String) {
         print("📩 Received from Isolate: $message");
@@ -28,35 +33,71 @@ class IsolateChatService {
 
   Future<void> start() async {
     isolate = await Isolate.spawn(_isolateFunction, mainReceivePort.sendPort);
-    await _isolateReady.future; // ✅ Wait until chat is ready
+    await _isolateReady.future;
   }
 
   Future<void> sendMessageToIsolate(String message) async {
-    if (await _isolateReady.future) { // ✅ Ensures chat is ready
+    if (isPaused) {
+      print("⚠️ Cannot send messages while paused.");
+      return;
+    }
+
+    if (await _isolateReady.future) {
       isolateSendPort.send(message);
       print("📤 Sent to Isolate: $message");
-      await messageQueue?.next; // ✅ Wait for response
+      try {
+        await messageQueue?.next.timeout(
+          Duration(seconds: 5),
+          onTimeout: () {
+            return "⚠️ Timeout: No response from isolate.";
+          },
+        );
+      } catch (e) {
+        print("⚠️ Error while waiting for response: $e");
+      }
     }
   }
 
   static void _isolateFunction(SendPort mainSendPort) {
     ReceivePort isolateReceivePort = ReceivePort();
-    mainSendPort.send(isolateReceivePort.sendPort); // ✅ Send back the SendPort
+    mainSendPort.send(isolateReceivePort.sendPort);
 
     isolateReceivePort.listen((message) {
       print("💬 Isolate received: $message");
 
-      // Simulate typing delay before responding
       Future.delayed(Duration(seconds: 1), () {
         mainSendPort.send("Isolate says: $message (Got it!)");
       });
     });
   }
 
+  void pause() {
+    if (subscription != null) {
+      subscription?.pause();
+      isPaused = true;
+      print("⏸️ Subscription paused.");
+    } else {
+      print("⚠️ No active subscription to pause.");
+    }
+  }
+
+  void resume() {
+    if (isPaused) {
+      subscription?.resume();
+      isPaused = false;
+      print("▶️ Subscription resumed.");
+    } else {
+      print("⚠️ Subscription is already running.");
+    }
+  }
+
   void dispose() {
     isolate.kill(priority: Isolate.immediate);
     mainReceivePort.close();
-    messageQueue?.cancel(); // ✅ Proper cleanup
+    subscription?.cancel();
+    messageQueue?.cancel();
     print("🚫 Chat closed.");
   }
 }
+
+
